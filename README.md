@@ -58,6 +58,12 @@ flowchart TD
 - 映像入力：OpenCVで取得可能なBGR画像
 - 時刻：単調増加するミリ秒整数
 
+事前にMediaPipeで使うモデルを落としておく。
+
+```bash
+uv run python scripts/download_model.py
+```
+
 パッケージとして実行する。
 
 ```bash
