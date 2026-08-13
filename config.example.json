@@ -1,0 +1,57 @@
+{
+  "model_path": "models/pose_landmarker_full.task",
+  "baseline_path": "baseline.json",
+  "camera_index": 0,
+  "frame_width": 1280,
+  "frame_height": 720,
+  "mirror_image": true,
+  "visibility_threshold": 0.55,
+  "smoothing_alpha": 0.25,
+  "calibration_seconds": 3.0,
+  "min_calibration_samples": 30,
+  "unknown_hold_seconds": 0.3,
+  "feet": {
+    "enabled": true,
+    "motion_window_seconds": 1.5,
+    "min_window_samples": 12,
+    "visibility_threshold": 0.35,
+    "position_threshold_ratio": 0.20,
+    "motion_threshold_ratio": 0.04,
+    "pitch_threshold_deg": 35.0,
+    "depth_weight": 0.25,
+    "require_position_and_pitch": true,
+    "warn_hold_seconds": 1.0,
+    "recover_hold_seconds": 1.0,
+    "message_left": "左足の裏を足台に着けてください",
+    "message_right": "右足の裏を足台に着けてください"
+  },
+  "metrics": {
+    "head_pitch_deg": {
+      "enabled": true,
+      "lower_delta": -15.0,
+      "upper_delta": 8.0,
+      "warn_hold_seconds": 0.7,
+      "recover_hold_seconds": 0.8,
+      "message_below": "顎を引きすぎています",
+      "message_above": "もう少し顎を引いてください"
+    },
+    "torso_forward_deg": {
+      "enabled": true,
+      "lower_delta": -8.0,
+      "upper_delta": 10.0,
+      "warn_hold_seconds": 0.8,
+      "recover_hold_seconds": 1.0,
+      "message_below": "少し前へ戻ってください",
+      "message_above": "背筋をもう少し起こしてください"
+    },
+    "head_forward_ratio": {
+      "enabled": true,
+      "lower_delta": -0.10,
+      "upper_delta": 0.10,
+      "warn_hold_seconds": 0.8,
+      "recover_hold_seconds": 1.0,
+      "message_below": "頭を少し前へ戻してください",
+      "message_above": "頭を少し後ろへ戻してください"
+    }
+  }
+}
