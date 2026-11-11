@@ -31,7 +31,8 @@ class MetricRule:
 
 @dataclass(frozen=True)
 class FootRule:
-    enabled: bool = True
+    # Feet are often occluded by a table. Enable only if both feet are visible.
+    enabled: bool = False
     motion_window_seconds: float = 1.5
     min_window_samples: int = 12
     visibility_threshold: float = 0.35
@@ -42,8 +43,8 @@ class FootRule:
     require_position_and_pitch: bool = True
     warn_hold_seconds: float = 1.0
     recover_hold_seconds: float = 1.0
-    message_left: str = "左足の裏を足台に着けてください"
-    message_right: str = "右足の裏を足台に着けてください"
+    message_left: str = "左足の位置を確認してください"
+    message_right: str = "右足の位置を確認してください"
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "FootRule":
@@ -92,28 +93,28 @@ def _default_metrics() -> dict[str, MetricRule]:
             enabled=True,
             lower_delta=-15.0,
             upper_delta=8.0,
-            warn_hold_seconds=0.7,
-            recover_hold_seconds=0.8,
-            message_below="顎を引きすぎています",
-            message_above="もう少し顎を引いてください",
+            warn_hold_seconds=2.5,
+            recover_hold_seconds=1.0,
+            message_below="頭の向きを無理なく基準姿勢へ戻してください",
+            message_above="頭の向きを無理なく基準姿勢へ戻してください",
         ),
         "torso_forward_deg": MetricRule(
             enabled=True,
             lower_delta=-8.0,
             upper_delta=10.0,
-            warn_hold_seconds=0.8,
+            warn_hold_seconds=2.5,
             recover_hold_seconds=1.0,
-            message_below="少し前へ戻ってください",
-            message_above="背筋をもう少し起こしてください",
+            message_below="座り直して体幹を基準姿勢へ戻してください",
+            message_above="座り直して体幹を基準姿勢へ戻してください",
         ),
         "head_forward_ratio": MetricRule(
             enabled=True,
             lower_delta=-0.10,
             upper_delta=0.10,
-            warn_hold_seconds=0.8,
+            warn_hold_seconds=2.5,
             recover_hold_seconds=1.0,
-            message_below="頭を少し前へ戻してください",
-            message_above="頭を少し後ろへ戻してください",
+            message_below="頭と肩の位置を無理なく整えてください",
+            message_above="頭と肩の位置を無理なく整えてください",
         ),
     }
 
@@ -131,6 +132,8 @@ class PostureConfig:
     calibration_seconds: float = 3.0
     min_calibration_samples: int = 30
     unknown_hold_seconds: float = 0.3
+    feedback_min_interval_seconds: float = 10.0
+    feedback_repeat_seconds: float = 35.0
     metrics: Mapping[str, MetricRule] = field(default_factory=_default_metrics)
     feet: FootRule = field(default_factory=FootRule)
 
@@ -143,9 +146,17 @@ class PostureConfig:
             raise ValueError("calibration_seconds must be positive")
         if self.min_calibration_samples <= 0:
             raise ValueError("min_calibration_samples must be positive")
+        if self.unknown_hold_seconds < 0:
+            raise ValueError("unknown_hold_seconds must be non-negative")
+        if self.feedback_min_interval_seconds < 0:
+            raise ValueError("feedback_min_interval_seconds must be non-negative")
+        if self.feedback_repeat_seconds <= 0:
+            raise ValueError("feedback_repeat_seconds must be positive")
         for key, rule in self.metrics.items():
             if rule.lower_delta >= rule.upper_delta:
                 raise ValueError(f"{key}: lower_delta must be smaller than upper_delta")
+            if rule.warn_hold_seconds < 0 or rule.recover_hold_seconds < 0:
+                raise ValueError(f"{key}: hold times must be non-negative")
         if self.feet.motion_window_seconds <= 0.0:
             raise ValueError("feet.motion_window_seconds must be positive")
         if self.feet.min_window_samples < 2:
@@ -160,6 +171,8 @@ class PostureConfig:
             raise ValueError("feet.pitch_threshold_deg must be positive")
         if not 0.0 <= self.feet.depth_weight <= 1.0:
             raise ValueError("feet.depth_weight must be in [0, 1]")
+        if self.feet.warn_hold_seconds < 0 or self.feet.recover_hold_seconds < 0:
+            raise ValueError("feet: hold times must be non-negative")
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "PostureConfig":
@@ -188,6 +201,12 @@ class PostureConfig:
             ),
             unknown_hold_seconds=float(
                 data.get("unknown_hold_seconds", defaults.unknown_hold_seconds)
+            ),
+            feedback_min_interval_seconds=float(
+                data.get("feedback_min_interval_seconds", defaults.feedback_min_interval_seconds)
+            ),
+            feedback_repeat_seconds=float(
+                data.get("feedback_repeat_seconds", defaults.feedback_repeat_seconds)
             ),
             metrics=metrics,
             feet=FootRule.from_dict(data.get("feet", {})),

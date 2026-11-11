@@ -12,6 +12,7 @@ class AssessmentStatus(str, Enum):
     UNKNOWN = "unknown"
     NOT_CALIBRATED = "not_calibrated"
     CALIBRATING = "calibrating"
+    PAUSED = "paused"
 
 
 @dataclass(frozen=True)
@@ -107,10 +108,12 @@ class PostureAssessment:
     feet: Mapping[str, FootAssessment] = field(default_factory=dict)
     messages: tuple[str, ...] = ()
     calibration_progress: float | None = None
+    # A rate-limited, actionable event. `messages` remain UI/status text.
+    feedback_messages: tuple[str, ...] = ()
 
     @property
     def needs_feedback(self) -> bool:
-        return self.overall_status is AssessmentStatus.ADVICE
+        return bool(self.feedback_messages)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -121,6 +124,7 @@ class PostureAssessment:
             "feet": {key: value.to_dict() for key, value in self.feet.items()},
             "messages": list(self.messages),
             "calibration_progress": self.calibration_progress,
+            "feedback_messages": list(self.feedback_messages),
         }
 
     def to_json(self, *, ensure_ascii: bool = False) -> str:

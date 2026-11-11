@@ -1,12 +1,24 @@
 from .analyzer import PostureAnalyzer
+from .app import CameraPostureApp
 from .baseline import PostureBaseline
-from .config import FootRule, PostureConfig
-from .models import AssessmentStatus, FootAssessment, PostureAssessment, PoseFrame
+from .config import FootRule, MetricRule, PostureConfig
+from .models import (
+    AssessmentStatus,
+    FootAssessment,
+    MetricAssessment,
+    Point3D,
+    PostureAssessment,
+    PoseFrame,
+)
 
 __all__ = [
     "AssessmentStatus",
+    "CameraPostureApp",
     "FootAssessment",
     "FootRule",
+    "MetricAssessment",
+    "MetricRule",
+    "Point3D",
     "PoseFrame",
     "PostureAnalyzer",
     "PostureAssessment",

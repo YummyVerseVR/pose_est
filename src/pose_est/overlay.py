@@ -97,14 +97,16 @@ class OverlayRenderer:
             AssessmentStatus.UNKNOWN: (210, 210, 210, 255),
             AssessmentStatus.NOT_CALIBRATED: (130, 190, 255, 255),
             AssessmentStatus.CALIBRATING: (130, 190, 255, 255),
+            AssessmentStatus.PAUSED: (160, 170, 185, 255),
         }[assessment.overall_status]
 
         status_label = {
-            AssessmentStatus.OK: "OK",
-            AssessmentStatus.ADVICE: "姿勢を調整してください",
-            AssessmentStatus.UNKNOWN: "判定できません",
+            AssessmentStatus.OK: "基準姿勢を保てています",
+            AssessmentStatus.ADVICE: "姿勢の確認をおすすめします",
+            AssessmentStatus.UNKNOWN: "姿勢の観測中・一部判定不可",
             AssessmentStatus.NOT_CALIBRATED: "未設定",
             AssessmentStatus.CALIBRATING: "基準姿勢を記録中",
+            AssessmentStatus.PAUSED: "姿勢サポートを一時停止中",
         }[assessment.overall_status]
         draw.text((30, 25), status_label, font=self._large_font, fill=color)
 
@@ -160,7 +162,7 @@ class OverlayRenderer:
 
         draw.text(
             (30, 12 + panel_height - 28),
-            "C: 基準姿勢を再登録   Q / Esc: 終了",
+            "C: 基準姿勢の再登録   P: 通知一時停止/再開   Q: 終了",
             font=self._small_font,
             fill=(180, 185, 195, 255),
         )

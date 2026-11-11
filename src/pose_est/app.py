@@ -86,7 +86,10 @@ class CameraPostureApp:
                     if key in (ord("q"), ord("Q"), 27):
                         break
                     if key in (ord("c"), ord("C")):
+                        analyzer.set_paused(False)
                         analyzer.start_calibration(timestamp_ms)
+                    if key in (ord("p"), ord("P")):
+                        analyzer.set_paused(not analyzer.paused)
         finally:
             capture.release()
             cv2.destroyAllWindows()
