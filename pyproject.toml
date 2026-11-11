@@ -14,8 +14,11 @@ dependencies = [
     "pillow>=12.3.0",
 ]
 
+[project.optional-dependencies]
+realsense = ["pyrealsense2>=2.56,<3"]
+
 [project.scripts]
-pose-est = "pose_est:main"
+pose-est = "pose_est.app:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]

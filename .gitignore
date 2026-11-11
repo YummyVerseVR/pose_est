@@ -11,3 +11,11 @@ wheels/
 
 # Models by MediaPipe
 models/
+
+# Per-person calibration data (do not commit to shared repositories)
+baseline.json
+baseline.*.json
+
+baseline_realsense*.json
+*.json.tmp
+research-logs/

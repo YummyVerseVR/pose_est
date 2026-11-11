@@ -117,6 +117,29 @@ def _select_reference_points(
     return nose, ear, shoulder, hip, confidence
 
 
+def _select_head_points(
+    landmarks: Sequence[Point3D], threshold: float
+) -> tuple[Point3D, Point3D, float] | None:
+    """Head pitch can remain observable when the hips are hidden by a table."""
+    if len(landmarks) <= RIGHT_EAR:
+        return None
+    nose = landmarks[NOSE]
+    if not _visible(nose, threshold):
+        return None
+    ears = [
+        point for point in (landmarks[LEFT_EAR], landmarks[RIGHT_EAR])
+        if _visible(point, threshold)
+    ]
+    if not ears:
+        return None
+    ear = _midpoint(*ears) if len(ears) == 2 else ears[0]
+    confidence = min(
+        nose.visibility, nose.presence,
+        *(min(point.visibility, point.presence) for point in ears),
+    )
+    return nose, ear, confidence
+
+
 def foot_metric_keys(side: str) -> tuple[str, str, str, str]:
     if side not in {"left", "right"}:
         raise ValueError(f"unknown foot side: {side}")
@@ -193,6 +216,19 @@ def compute_posture_observation(
         return PostureObservation()
 
     metrics: dict[str, ObservedMetric] = {}
+    head = _select_head_points(frame.world_landmarks, visibility_threshold)
+    if head is not None:
+        nose, ear, confidence = head
+        face_vector = _subtract(nose, ear)
+        face_horizontal_length = _norm(_horizontal(face_vector))
+        if _norm(face_vector) >= _EPSILON:
+            metrics["head_pitch_deg"] = ObservedMetric(
+                value=math.degrees(
+                    math.atan2(-face_vector.y, max(face_horizontal_length, _EPSILON))
+                ),
+                confidence=confidence,
+            )
+
     selected = _select_reference_points(frame.world_landmarks, visibility_threshold)
     if selected is not None:
         nose, ear, shoulder, hip, confidence = selected
@@ -203,11 +239,6 @@ def compute_posture_observation(
         torso_length = _norm(torso_vector)
 
         if face_forward is not None and torso_length >= _EPSILON:
-            face_horizontal_length = _norm(face_horizontal)
-            head_pitch_deg = math.degrees(
-                math.atan2(-face_vector.y, max(face_horizontal_length, _EPSILON))
-            )
-
             # Positive means that the shoulders have moved in the direction the
             # face points, relative to the hips. MediaPipe world y grows downwards.
             torso_forward_distance = _dot(_horizontal(torso_vector), face_forward)
@@ -226,7 +257,6 @@ def compute_posture_observation(
             )
             metrics.update(
                 {
-                    "head_pitch_deg": metric(head_pitch_deg),
                     "torso_forward_deg": metric(torso_forward_deg),
                     "head_forward_ratio": metric(head_forward_ratio),
                 }

@@ -2,7 +2,29 @@
 
 ## 1. 目的
 
-単眼Webカメラから取得したMediaPipe Pose Landmarkerの姿勢ランドマークを使い、利用者ごとに登録した基準姿勢との差を判定するPythonコンポーネントである。
+WebカメラのMediaPipe推定座標、またはRealSense D435iのaligned depthから復元したランドマークを使い、利用者ごとに登録した**食事時の基準姿勢**との差を判定するPythonコンポーネントである。
+
+> **用途・安全性**: 本ソフトは食事時の着座姿勢への気づきを支援する試作システムであり、誤嚥の検知・予防効果、嚥下の安全性、足裏の接地を保証しない。顎引き・頭部回旋等の嚥下代償姿勢を画一的に指示しない。嚥下障害がある利用者の食事姿勢は医療専門職の個別評価を優先する。根拠と評価計画は [`docs/evidence_and_validation.md`](docs/evidence_and_validation.md) を参照。
+
+D435iのWindows 11導入・配置・測定定義・未検証項目は [RGB-D手順](docs/realsense.md) を参照。
+
+反応を早めた試用設定は `config.realsense-responsive.example.json`（注意持続1.2秒）。[設定と注意点](docs/realsense.md#反応を早める設定例)を確認する。
+
+### クイックスタート
+
+```bash
+uv sync
+uv run python scripts/download_model.py
+uv run pose-est
+# 任意の設定ファイルを指定する場合
+uv run pose-est --config config.json
+```
+
+- **C**: 画面に頭・肩・腰を映し、無理なく保てる食事時の姿勢で基準を登録する
+- **P**: 食べ物を口へ運ぶ・会話する・食事介助する間、判定と通知を停止／再開する
+- **Q / Esc**: 終了する
+- 食卓では脚が隠れやすいため、**足の判定は初期設定では無効**。両足が映る環境でのみ設定の `feet.enabled=true` にする
+- カメラ位置、椅子、卓上環境を変えた場合は基準を再登録する。起動時は `baseline.json` が残っていれば再利用する
 
 主な用途は次の2つの通り。
 
@@ -23,6 +45,7 @@
 
 - 足裏が床や足台へ物理的に接触しているか
 - 足へ体重を預けているか
+- 誤嚥、咳や湿性嗄声、口腔内の食物、食事中の嚥下タイミング
 - 脊柱の形状、骨盤角度、関節可動域などの医学的評価
 - 完全に遮蔽された身体部位の推測
 - 複数人の同時追跡
@@ -53,7 +76,7 @@ flowchart TD
 
 ## 4. 実行環境
 
-- Python：3.10以上、3.14未満
+- Python：3.12以上（`pyproject.toml` の依存関係に従う）
 - 姿勢推定：MediaPipe Pose Landmarker、1人分
 - 映像入力：OpenCVで取得可能なBGR画像
 - 時刻：単調増加するミリ秒整数
@@ -67,9 +90,9 @@ uv run python scripts/download_model.py
 パッケージとして実行する。
 
 ```bash
-uv run posture-monitor --config config.json
+uv run pose-est --config config.json
 # または
-uv run python -m posture_monitor --config config.json
+uv run python -m pose_est --config config.json
 ```
 
 ## 5. 公開インターフェース
@@ -77,7 +100,7 @@ uv run python -m posture_monitor --config config.json
 パッケージ直下から公開する型は次のとおり。
 
 ```python
-from posture_monitor import (
+from pose_est import (
     AssessmentStatus,
     CameraPostureApp,
     FootAssessment,
@@ -96,12 +119,13 @@ from posture_monitor import (
 ### 5.1 カメラアプリを利用する
 
 ```python
-from posture_monitor import CameraPostureApp, PostureConfig
+from pose_est import CameraPostureApp, PostureConfig
 
 
 def receive_result(result):
     if result.needs_feedback:
-        print(result.to_json())
+        # 低頻度の通知イベント。毎フレームの姿勢状態は result.metrics にある。
+        print(result.feedback_messages)
 
 
 config = PostureConfig.load("config.json")
@@ -115,7 +139,7 @@ CameraPostureApp(config).run(on_result=receive_result)
 ```python
 import time
 
-from posture_monitor import PostureAnalyzer, PostureConfig
+from pose_est import PostureAnalyzer, PostureConfig
 
 config = PostureConfig.load("config.json")
 analyzer = PostureAnalyzer(config)
@@ -172,13 +196,13 @@ PoseFrame(
 4. 各指標の中央値を基準値として採用する。
 5. `take_baseline_update()`が新しい`PostureBaseline`を1回だけ返す。
 
-足判定を有効にした場合、左右の足に必要なランドマークもキャリブレーション中に見えている必要がある。どれか1指標でも必要サンプル数へ達しなければ、時間が経過しても完了しない。
+足判定を有効にした場合、左右の足に必要なランドマークもキャリブレーション中に見えている必要がある。どれか1指標でも必要サンプル数へ達しなければ、時間が経過しても完了しない。通常の食卓では `feet.enabled=false` を推奨する。
 
 キャリブレーション中の`overall_status`は`calibrating`で、`calibration_progress`は0～1となる。進捗は経過時間と全指標の最小サンプル進捗の小さい方である。
 
 ## 8. 上半身の判定指標
 
-計算には、鼻、耳、肩、腰のMediaPipe world landmarkを使う。左右すべてが見える場合は左右中点を使用し、片側しか十分に見えない場合は信頼度の高い側を使用する。
+計算には、鼻、耳、肩、腰のMediaPipe world landmarkを使う。左右すべてが見える場合は左右中点を使用し、片側しか十分に見えない場合は信頼度の高い側を使用する。頭部ピッチは鼻と耳が見えれば、腰が隠れていても計算できる。
 
 | キー | 単位 | 正方向 | 概要 |
 | --- | --- | --- | --- |
@@ -243,7 +267,7 @@ motion_bad OR (position_bad AND pitch_bad)
 motion_bad OR position_bad OR pitch_bad
 ```
 
-足の判定は接地そのものではなく、「基準位置付近で足裏方向が近く、継続的に揺れていない」ことを接地の代理条件として扱う。基準位置付近で静止したまま足を浮かせた場合は区別できない。
+足の判定は接地そのものではなく、「基準位置付近で足裏方向が近く、継続的に揺れていない」ことを位置安定性の代理条件として扱う。基準位置付近で静止したまま足を浮かせた場合は区別できない。そのため**接地を促す断定的な文言は使わない**。
 
 ## 10. 時系列の状態確定
 
@@ -251,7 +275,9 @@ motion_bad OR position_bad OR pitch_bad
 
 - 注意状態への遷移：同じ候補状態が`warn_hold_seconds`継続した後
 - 正常状態への復帰：`ok`が`recover_hold_seconds`継続した後
-- 観測不能への遷移：`unknown`が`unknown_hold_seconds`継続した後
+- 観測不能への内部状態遷移：`unknown`が`unknown_hold_seconds`継続した後（ただし観測喪失時は古い `advice` を表示せず即座に `unknown` とする）
+
+食事中の動作による短い姿勢変化を警告しないよう、標準の上半身 `warn_hold_seconds` は **2.5秒**。これは臨床的な閾値ではなく、使用感を調整するための暫定値である。
 
 候補状態が途中で変わった場合、継続時間はリセットされる。このため、呼び出し直後や足の履歴収集中は一時的に`unknown`となる。
 
@@ -265,13 +291,14 @@ motion_bad OR position_bad OR pitch_bad
 | --- | --- |
 | `not_calibrated` | 個人基準が設定されていない |
 | `calibrating` | 個人基準を収集中 |
+| `paused` | 利用者が手動で一時停止中 |
 | `advice` | 1項目以上で姿勢調整が必要 |
 | `unknown` | 注意項目はないが、1項目以上を観測できない |
 | `ok` | 有効な全項目を観測でき、注意項目がない |
 
 通常判定時の優先順位は`advice > unknown > ok`である。つまり、右足が見えず`unknown`でも、頭部に注意があれば全体は`advice`となる。
 
-`needs_feedback`は`overall_status == advice`の場合だけ`True`である。`unknown`への案内も表示・送信したい処理では、`messages`または`overall_status`を直接確認すること。
+`needs_feedback`は**通知すべき新しいイベントが発生したフレームだけ**`True`となる。状態が `advice` の間も毎フレームは鳴らさない。通知文は `feedback_messages` に入り、同時に最大1件だけ発行される。`feedback_min_interval_seconds` 未満の再通知を避け、同じ項目の継続通知は `feedback_repeat_seconds` 以上空ける。通知の優先順位は体幹、頭部前方変位、頭部ピッチ、その他の指標、足の順。`messages` は現在の画面表示用で、すべての状態を継続取得したい場合は `overall_status` や `metrics` を使用する。
 
 ### 11.2 JSON互換データ
 
@@ -293,7 +320,7 @@ motion_bad OR position_bad OR pitch_bad
       "upper_delta": 8.0,
       "confidence": 0.91,
       "direction": "above",
-      "message": "もう少し顎を引いてください"
+      "message": "頭の向きを無理なく基準姿勢へ戻してください"
     }
   },
   "feet": {
@@ -305,11 +332,12 @@ motion_bad OR position_bad OR pitch_bad
       "pitch_deviation_deg": 4.2,
       "confidence": 0.76,
       "reasons": ["motion"],
-      "message": "左足の裏を足台に着けてください"
+      "message": "左足の位置を確認してください"
     }
   },
-  "messages": ["もう少し顎を引いてください", "左足の裏を足台に着けてください"],
-  "calibration_progress": null
+  "messages": ["頭の向きを無理なく基準姿勢へ戻してください", "左足の位置を確認してください"],
+  "calibration_progress": null,
+  "feedback_messages": ["頭の向きを無理なく基準姿勢へ戻してください"]
 }
 ```
 
@@ -332,6 +360,8 @@ motion_bad OR position_bad OR pitch_bad
 | `calibration_seconds` | `3.0` | 基準姿勢の最短収集時間 |
 | `min_calibration_samples` | `30` | 各指標に必要な最低サンプル数 |
 | `unknown_hold_seconds` | `0.3` | 観測不能を確定する継続時間 |
+| `feedback_min_interval_seconds` | `10.0` | 通知全体の最短間隔（秒） |
+| `feedback_repeat_seconds` | `35.0` | 同じ項目の再通知までの間隔（秒） |
 
 ### 12.2 上半身指標設定
 
@@ -351,7 +381,7 @@ motion_bad OR position_bad OR pitch_bad
 
 | キー | 既定値 | 意味 |
 | --- | ---: | --- |
-| `enabled` | `true` | 足判定を有効化する |
+| `enabled` | `false` | 足が両方見える場合のみ有効化する |
 | `motion_window_seconds` | `1.5` | ぶらつき計算の履歴長 |
 | `min_window_samples` | `12` | ぶらつき計算の最低サンプル数 |
 | `visibility_threshold` | `0.35` | 足ランドマークの最低信頼度 |
@@ -362,8 +392,8 @@ motion_bad OR position_bad OR pitch_bad
 | `require_position_and_pitch` | `true` | 静止時に位置と傾きの両方を要求する |
 | `warn_hold_seconds` | `1.0` | 注意確定までの時間 |
 | `recover_hold_seconds` | `1.0` | 正常復帰までの時間 |
-| `message_left` | `左足の裏を足台に着けてください` | 左足の注意文 |
-| `message_right` | `右足の裏を足台に着けてください` | 右足の注意文 |
+| `message_left` | `左足の位置を確認してください` | 左足の注意文 |
+| `message_right` | `右足の位置を確認してください` | 右足の注意文 |
 
 設定値の制約は次のとおりである。
 
@@ -398,7 +428,7 @@ motion_bad OR position_bad OR pitch_bad
 }
 ```
 
-- 現在対応する`version`は`1`のみ
+- Webcamは`version: 1`、RGB-Dはセンサー・配置・品質設定・固定前後軸を持つ`version: 2`。異なる計測モードの基準は使用しない
 - 保存は一時ファイルを経由して置換する
 - 利用者ごと、カメラ位置ごとに別ファイルを使用する
 - カメラ位置、画角、椅子、足台を変えた場合は再キャリブレーションする
@@ -414,7 +444,17 @@ motion_bad OR position_bad OR pitch_bad
 - 足の時系列サンプルが不足している
 - 基準ファイルに必要な指標がない
 
-真横から撮影すると奥側の脚が手前側の脚へ隠れる。完全な遮蔽は閾値調整では解決できないため、正面から30～45度程度の斜め位置を推奨する。
+Webcamで脚も観測する場合は真横で遮蔽しやすい。D435iでの上半身観測は75°側方を実験開始条件とし、0/45/75/90°を比較する。いずれも精度や臨床効果を保証する設置角ではない。
 
 単眼映像では奥行き推定が不安定であり、床や段ボールなど支持面の形状も直接取得していない。したがって、足について`ok`が意味するのは「接地が確認された」ではなく、「基準時と近い位置・傾きで安定して見える」である。
+
+## 15. テスト
+
+Webカメラなしで、通知頻度・一時停止・遮蔽時の警告抑制・部分的な頭部追跡を検証できる。
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -v
+```
+
+実機での精度・使い勝手・誤嚥予防効果はまだ未検証。評価方法と医療的な注意事項は [`docs/evidence_and_validation.md`](docs/evidence_and_validation.md) を参照。
 

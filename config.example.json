@@ -10,48 +10,72 @@
   "calibration_seconds": 3.0,
   "min_calibration_samples": 30,
   "unknown_hold_seconds": 0.3,
+  "feedback_min_interval_seconds": 10.0,
+  "feedback_repeat_seconds": 35.0,
   "feet": {
-    "enabled": true,
+    "enabled": false,
     "motion_window_seconds": 1.5,
     "min_window_samples": 12,
     "visibility_threshold": 0.35,
-    "position_threshold_ratio": 0.20,
+    "position_threshold_ratio": 0.2,
     "motion_threshold_ratio": 0.04,
     "pitch_threshold_deg": 35.0,
     "depth_weight": 0.25,
     "require_position_and_pitch": true,
     "warn_hold_seconds": 1.0,
     "recover_hold_seconds": 1.0,
-    "message_left": "左足の裏を足台に着けてください",
-    "message_right": "右足の裏を足台に着けてください"
+    "message_left": "左足の位置を確認してください",
+    "message_right": "右足の位置を確認してください"
   },
   "metrics": {
     "head_pitch_deg": {
       "enabled": true,
       "lower_delta": -15.0,
       "upper_delta": 8.0,
-      "warn_hold_seconds": 0.7,
-      "recover_hold_seconds": 0.8,
-      "message_below": "顎を引きすぎています",
-      "message_above": "もう少し顎を引いてください"
+      "warn_hold_seconds": 2.5,
+      "recover_hold_seconds": 1.0,
+      "message_below": "頭の向きを無理なく基準姿勢へ戻してください",
+      "message_above": "頭の向きを無理なく基準姿勢へ戻してください"
     },
     "torso_forward_deg": {
       "enabled": true,
       "lower_delta": -8.0,
       "upper_delta": 10.0,
-      "warn_hold_seconds": 0.8,
+      "warn_hold_seconds": 2.5,
       "recover_hold_seconds": 1.0,
-      "message_below": "少し前へ戻ってください",
-      "message_above": "背筋をもう少し起こしてください"
+      "message_below": "座り直して体幹を基準姿勢へ戻してください",
+      "message_above": "座り直して体幹を基準姿勢へ戻してください"
     },
     "head_forward_ratio": {
       "enabled": true,
-      "lower_delta": -0.10,
-      "upper_delta": 0.10,
-      "warn_hold_seconds": 0.8,
+      "lower_delta": -0.1,
+      "upper_delta": 0.1,
+      "warn_hold_seconds": 2.5,
       "recover_hold_seconds": 1.0,
-      "message_below": "頭を少し前へ戻してください",
-      "message_above": "頭を少し後ろへ戻してください"
+      "message_below": "頭と肩の位置を無理なく整えてください",
+      "message_above": "頭と肩の位置を無理なく整えてください"
     }
-  }
+  },
+  "camera_source": "webcam",
+  "rgbd_width": 640,
+  "rgbd_height": 480,
+  "rgbd_fps": 30,
+  "frame_timeout_ms": 3000,
+  "sensor_serial": "",
+  "camera_side": "left",
+  "placement_id": "initial",
+  "camera_azimuth_deg": 75,
+  "camera_distance_m": 1.3,
+  "camera_height_m": 1.0,
+  "support_profile": "general_meal_support",
+  "research_log_path": null,
+  "depth_patch_size": 5,
+  "depth_min_pixels": 9,
+  "depth_min_m": 0.2,
+  "depth_max_m": 3,
+  "depth_min_valid_ratio": 0.6,
+  "depth_max_mad_m": 0.02,
+  "depth_max_spread_m": 0.06,
+  "depth_min_inlier_ratio": 0.8,
+  "depth_min_confidence": 0.5
 }

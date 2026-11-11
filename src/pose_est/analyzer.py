@@ -75,10 +75,38 @@ class PostureAnalyzer:
             str, deque[tuple[int, tuple[float, float, float]]]
         ] = {side: deque() for side in ("left", "right")}
         self._baseline_updated = False
+        self._paused = False
+        self._last_feedback_ms: int | None = None
+        self._last_feedback_key: str | None = None
+        self._last_feedback_for_key_ms: int | None = None
+
+    @property
+    def calibration_sample_counts(self):
+        if self._calibration is None:
+            return None
+        return {k: len(v) for k, v in self._calibration.samples.items()}
+
+    @property
+    def paused(self) -> bool:
+        return self._paused
+
+    def set_paused(self, paused: bool) -> None:
+        """Suspend feedback during a mouthful, conversation or care activity."""
+        if paused == self._paused:
+            return
+        self._paused = paused
+        if paused:
+            self.cancel_calibration()
+        # Do not carry stale posture states from before the pause.
+        self._reset_temporal_state()
+        self._last_feedback_key = None
+        self._last_feedback_for_key_ms = None
 
     def set_baseline(self, baseline: PostureBaseline | None) -> None:
         self.baseline = baseline
         self._reset_temporal_state()
+        self._last_feedback_key = None
+        self._last_feedback_for_key_ms = None
 
     def start_calibration(self, timestamp_ms: int) -> None:
         enabled_keys = {
@@ -95,6 +123,8 @@ class PostureAnalyzer:
             metric_keys=enabled_keys,
         )
         self._baseline_updated = False
+        self._last_feedback_key = None
+        self._last_feedback_for_key_ms = None
 
     def cancel_calibration(self) -> None:
         self._calibration = None
@@ -105,12 +135,19 @@ class PostureAnalyzer:
         self._baseline_updated = False
         return self.baseline
 
-    def update(self, frame: PoseFrame | None, timestamp_ms: int) -> PostureAssessment:
-        observation = compute_posture_observation(
-            frame,
-            self.config.visibility_threshold,
-            self.config.feet.visibility_threshold,
-        )
+    def update(self, frame: PoseFrame | None, timestamp_ms: int, *, observation: PostureObservation | None = None) -> PostureAssessment:
+        if self._paused:
+            return PostureAssessment(
+                timestamp_ms=timestamp_ms,
+                overall_status=AssessmentStatus.PAUSED,
+                calibrated=self.baseline is not None,
+                messages=("通知を一時停止中です。Pキーで再開できます",),
+            )
+
+        if observation is None:
+            observation = compute_posture_observation(
+                frame, self.config.visibility_threshold, self.config.feet.visibility_threshold
+            )
 
         if self._calibration is not None:
             self._calibration.add(observation)
@@ -151,12 +188,11 @@ class PostureAnalyzer:
             baseline_value = self.baseline.metrics.get(key)
             if observed is None or baseline_value is None:
                 self._smoothed.pop(key, None)
-                stable_state = self._states[key].update(
-                    "unknown", timestamp_ms, rule, self.config.unknown_hold_seconds
-                )
+                self._states[key] = _TemporalState()
                 assessments[key] = self._make_metric_assessment(
                     key=key,
-                    stable_state=stable_state,
+                    # Never give advice based only on a previously visible frame.
+                    stable_state="unknown",
                     value=None,
                     baseline=baseline_value,
                     deviation=None,
@@ -227,7 +263,9 @@ class PostureAnalyzer:
                 messages = self._deduplicate(unknown_messages)
             else:
                 overall = AssessmentStatus.OK
-                messages = ("姿勢は良好です",)
+                messages = ("基準姿勢を保てています",)
+
+        feedback_messages = self._select_feedback(assessments, feet, timestamp_ms)
 
         return PostureAssessment(
             timestamp_ms=timestamp_ms,
@@ -236,7 +274,55 @@ class PostureAnalyzer:
             metrics=assessments,
             feet=feet,
             messages=messages,
+            feedback_messages=feedback_messages,
         )
+
+    def _select_feedback(
+        self,
+        assessments: dict[str, MetricAssessment],
+        feet: dict[str, FootAssessment],
+        timestamp_ms: int,
+    ) -> tuple[str, ...]:
+        """Emit at most one low-frequency cue, independent of the UI status."""
+        candidates: list[tuple[str, str]] = []
+        # Prioritize sustained trunk/neck deviations over the optional feet proxy.
+        for key in ("torso_forward_deg", "head_forward_ratio", "head_pitch_deg"):
+            item = assessments.get(key)
+            if item is not None and item.status is AssessmentStatus.ADVICE and item.message:
+                candidates.append((key, item.message))
+        for key, item in assessments.items():
+            if key not in {"torso_forward_deg", "head_forward_ratio", "head_pitch_deg"}:
+                if item.status is AssessmentStatus.ADVICE and item.message:
+                    candidates.append((key, item.message))
+        for side in ("left", "right"):
+            item = feet.get(side)
+            if item is not None and item.status is AssessmentStatus.ADVICE and item.message:
+                candidates.append((f"foot_{side}", item.message))
+
+        if not candidates:
+            self._last_feedback_key = None
+            self._last_feedback_for_key_ms = None
+            return ()
+
+        key, message = candidates[0]
+        since_global = (
+            float("inf") if self._last_feedback_ms is None
+            else timestamp_ms - self._last_feedback_ms
+        )
+        since_key = (
+            float("inf") if self._last_feedback_key != key
+            or self._last_feedback_for_key_ms is None
+            else timestamp_ms - self._last_feedback_for_key_ms
+        )
+        if (
+            since_global < self.config.feedback_min_interval_seconds * 1000
+            or since_key < self.config.feedback_repeat_seconds * 1000
+        ):
+            return ()
+        self._last_feedback_ms = timestamp_ms
+        self._last_feedback_key = key
+        self._last_feedback_for_key_ms = timestamp_ms
+        return (message,)
 
     def _assess_feet(
         self,
@@ -254,6 +340,8 @@ class PostureAnalyzer:
             baseline_values = [self.baseline.metrics.get(key) for key in keys]
             if any(value is None for value in baseline_values):
                 self._foot_histories[side].clear()
+                for key in keys:
+                    self._smoothed.pop(key, None)
                 results[side] = FootAssessment(
                     side=side,
                     status=AssessmentStatus.UNKNOWN,
@@ -268,12 +356,14 @@ class PostureAnalyzer:
             observed_values = [observation.metrics.get(key) for key in keys]
             if any(value is None for value in observed_values):
                 self._foot_histories[side].clear()
-                stable_state = self._foot_states[side].update(
+                for key in keys:
+                    self._smoothed.pop(key, None)
+                self._foot_states[side].update(
                     "unknown", timestamp_ms, rule, self.config.unknown_hold_seconds
                 )
                 results[side] = self._make_foot_assessment(
                     side=side,
-                    stable_state=stable_state,
+                    stable_state="unknown",
                     position_deviation=None,
                     motion_rms=None,
                     pitch_deviation=None,
@@ -368,7 +458,7 @@ class PostureAnalyzer:
     def _calibration_message(self) -> str:
         if self.config.feet.enabled:
             return "顔から足先まで映し、両足を置いた基準姿勢を保ってください"
-        return "無理なく取れる正しい姿勢を保ってください"
+        return "無理なく保てる食事時の基準姿勢を取ってください"
 
     @staticmethod
     def _angle_delta(value: float, baseline: float) -> float:
