@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 from statistics import median
 from typing import Mapping
@@ -15,6 +16,7 @@ class PostureBaseline:
     metrics: Mapping[str, float]
     created_at: str
     version: int = 1
+    metadata: Mapping[str, object] = field(default_factory=dict)
 
     @classmethod
     def create(cls, metrics: Mapping[str, float]) -> "PostureBaseline":
@@ -28,6 +30,7 @@ class PostureBaseline:
             "version": self.version,
             "created_at": self.created_at,
             "metrics": dict(self.metrics),
+            "metadata": dict(self.metadata),
         }
 
     def save(self, path: str | Path) -> None:
@@ -43,12 +46,15 @@ class PostureBaseline:
     @classmethod
     def load(cls, path: str | Path) -> "PostureBaseline":
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        if int(data.get("version", 0)) != 1:
+        if int(data.get("version", 0)) not in (1, 2):
             raise ValueError("unsupported baseline version")
+        if not all(math.isfinite(float(v)) for v in data["metrics"].values()):
+            raise ValueError("nonfinite baseline")
         return cls(
             metrics={str(key): float(value) for key, value in data["metrics"].items()},
             created_at=str(data["created_at"]),
-            version=1,
+            version=int(data["version"]),
+            metadata=data.get("metadata", {}),
         )
 
 
@@ -95,3 +101,37 @@ class CalibrationSession:
             {key: float(median(values)) for key, values in self.samples.items()}
         )
 
+
+
+def validate_baseline(baseline, measurement_source, context=None):
+    """Do not compare estimated world coordinates with metric sensor coordinates."""
+    source = baseline.metadata.get("measurement_source", "mediapipe_world")
+    if source != measurement_source:
+        raise ValueError("measurement source changed; press C to recalibrate")
+    if measurement_source == "realsense_depth":
+        if baseline.version != 2 or baseline.metadata.get("context") != context:
+            raise ValueError("sensor/setup/settings changed; press C to recalibrate")
+        ref = baseline.metadata.get("reference", {})
+        forward = ref.get("forward", [])
+        indices = ref.get("indices", [])
+        if (len(forward) != 3 or not all(math.isfinite(float(v)) for v in forward)
+                or abs(sum(float(v)**2 for v in forward)-1) > 1e-5
+                or abs(float(forward[1])) > 1e-6
+                or indices not in ([7, 11, 23], [8, 12, 24])):
+            raise ValueError("invalid RGB-D reference; press C to recalibrate")
+        if "hip_origin" in ref and (len(ref["hip_origin"]) != 3 or
+                not all(math.isfinite(float(v)) for v in ref["hip_origin"])):
+            raise ValueError("invalid hip origin; press C to recalibrate")
+
+
+def rgbd_context(config, packet):
+    """Bind calibration to actual intrinsics, hardware, placement and quality policy."""
+    from dataclasses import asdict
+    settings = asdict(config)
+    keys = [k for k in settings if k.startswith("depth_") or k in
+            ("visibility_threshold", "support_profile", "metrics", "placement_id")]
+    intr = packet.intrinsics
+    return {"sensor": packet.metadata, "settings": {k: settings[k] for k in keys},
+            "intrinsics": {k: getattr(intr, k) for k in ("width", "height", "fx", "fy", "ppx", "ppy")},
+            "distortion": str(getattr(intr, "model", "none")),
+            "coeffs": list(getattr(intr, "coeffs", [])), "depth_scale": packet.depth_scale}

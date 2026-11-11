@@ -8,6 +8,7 @@ from .models import AssessmentStatus, PoseFrame, PostureAssessment
 
 _METRIC_LABELS = {
     "head_pitch_deg": "頭部ピッチ",
+    "hip_position_delta": "股関節位置変位（実験的）",
     "torso_forward_deg": "体幹前傾",
     "head_forward_ratio": "頭部前方変位",
 }
@@ -72,6 +73,7 @@ class OverlayRenderer:
         frame_bgr,
         pose: PoseFrame | None,
         assessment: PostureAssessment,
+        *, diagnostics=(),
     ):
         import cv2
         import numpy as np
@@ -84,11 +86,14 @@ class OverlayRenderer:
         draw = ImageDraw.Draw(image, "RGBA")
 
         panel_width = min(max(680, image.width // 2), image.width - 24)
-        panel_height = min(380, image.height - 24)
+        panel_height = min(110 + len(assessment.messages[:3]) * 33
+                           + len(assessment.metrics) * 24 + len(assessment.feet) * 24
+                           + (32 if assessment.calibration_progress is not None else 0),
+                           image.height - 120)
         draw.rounded_rectangle(
             (12, 12, 12 + panel_width, 12 + panel_height),
             radius=14,
-            fill=(20, 24, 31, 205),
+            fill=(20, 24, 31, 150),
         )
 
         color = {
@@ -129,6 +134,8 @@ class OverlayRenderer:
         for key, metric in assessment.metrics.items():
             if metric.deviation is None:
                 value = "--"
+            elif key == "hip_position_delta":
+                value = f"{metric.deviation:+.3f}m"
             elif key.endswith("_ratio"):
                 value = f"{metric.deviation:+.3f}"
             else:
@@ -167,6 +174,11 @@ class OverlayRenderer:
             fill=(180, 185, 195, 255),
         )
 
+        # Compact quality strip below the status panel, separate from the pose.
+        diag_y = 12 + panel_height + 4
+        for line in diagnostics[:7]:
+            draw.text((14, diag_y), line[:105], font=self._small_font, fill=(255, 255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0, 255))
+            diag_y += 16
         return cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
     @staticmethod

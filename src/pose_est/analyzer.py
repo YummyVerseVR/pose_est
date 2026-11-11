@@ -81,6 +81,12 @@ class PostureAnalyzer:
         self._last_feedback_for_key_ms: int | None = None
 
     @property
+    def calibration_sample_counts(self):
+        if self._calibration is None:
+            return None
+        return {k: len(v) for k, v in self._calibration.samples.items()}
+
+    @property
     def paused(self) -> bool:
         return self._paused
 
@@ -129,7 +135,7 @@ class PostureAnalyzer:
         self._baseline_updated = False
         return self.baseline
 
-    def update(self, frame: PoseFrame | None, timestamp_ms: int) -> PostureAssessment:
+    def update(self, frame: PoseFrame | None, timestamp_ms: int, *, observation: PostureObservation | None = None) -> PostureAssessment:
         if self._paused:
             return PostureAssessment(
                 timestamp_ms=timestamp_ms,
@@ -138,11 +144,10 @@ class PostureAnalyzer:
                 messages=("通知を一時停止中です。Pキーで再開できます",),
             )
 
-        observation = compute_posture_observation(
-            frame,
-            self.config.visibility_threshold,
-            self.config.feet.visibility_threshold,
-        )
+        if observation is None:
+            observation = compute_posture_observation(
+                frame, self.config.visibility_threshold, self.config.feet.visibility_threshold
+            )
 
         if self._calibration is not None:
             self._calibration.add(observation)
@@ -183,9 +188,7 @@ class PostureAnalyzer:
             baseline_value = self.baseline.metrics.get(key)
             if observed is None or baseline_value is None:
                 self._smoothed.pop(key, None)
-                self._states[key].update(
-                    "unknown", timestamp_ms, rule, self.config.unknown_hold_seconds
-                )
+                self._states[key] = _TemporalState()
                 assessments[key] = self._make_metric_assessment(
                     key=key,
                     # Never give advice based only on a previously visible frame.

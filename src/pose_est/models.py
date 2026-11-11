@@ -45,6 +45,9 @@ class ObservedMetric:
 @dataclass(frozen=True)
 class PostureObservation:
     metrics: Mapping[str, ObservedMetric] = field(default_factory=dict)
+    unknown_reasons: Mapping[str, str] = field(default_factory=dict)
+    measurement_source: str = "mediapipe_world"
+    valid_depth_ratio: float | None = None
 
 
 @dataclass(frozen=True)
