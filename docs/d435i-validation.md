@@ -44,3 +44,10 @@ acceptance tests in realsense.md remain **not performed**. No camera or particip
 No clinical efficacy or safety validation is implied. Fixed camera level and placement changes
 must be checked manually; no IMU, automatic motion detection, swallowing recognition or foot
 contact inference. A uniformly wrong background patch can still pass local depth quality checks.
+
+## Follow-up evidence
+
+After the initial implementation checks, the operator reported successful short-run
+RGB-D acquisition/alignment on macOS and app startup. See [runtime checkpoint](d435i-macos-runtime.md).
+These observations do not replace the pending Windows or accuracy/long-run checks.
+The responsive example has synthetic response/transient regression tests; see tests/test_response_profile.py.

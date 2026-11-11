@@ -8,6 +8,8 @@ WebカメラのMediaPipe推定座標、またはRealSense D435iのaligned depth�
 
 D435iのWindows 11導入・配置・測定定義・未検証項目は [RGB-D手順](docs/realsense.md) を参照。
 
+反応を早めた試用設定は `config.realsense-responsive.example.json`（注意持続1.2秒）。[設定と注意点](docs/realsense.md#反応を早める設定例)を確認する。
+
 ### クイックスタート
 
 ```bash
